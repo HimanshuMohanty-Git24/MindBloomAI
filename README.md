@@ -1,5 +1,7 @@
 <div align="center">
-  <img src="assets/logo.png" alt="MindBloom AI Logo" width="180" style="border-radius: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"/>
+  <!-- <img src="assets/logo.png" alt="MindBloom AI Logo" width="180" style="border-radius: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"/> -->
+  <img width="180" height="180" alt="logo" src="https://github.com/user-attachments/assets/32f84ca9-6367-4fd8-9521-9afe9a563ca5" />
+
   
   <h1>🌸 MindBloom AI</h1>
   <h3>Your Empathetic Voice Companion for Mental Wellness</h3>
