@@ -1,222 +1,168 @@
-# 🌸 MindBloom AI - Mental Wellness Voice Companion
+<div align="center">
+  <img src="assets/logo.png" alt="MindBloom AI Logo" width="180" style="border-radius: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"/>
+  
+  <h1>🌸 MindBloom AI</h1>
+  <h3>Your Empathetic Voice Companion for Mental Wellness</h3>
 
-**Artika** is an AI-powered mental health support companion that provides empathetic, real-time voice conversations in multiple Indian languages. Built with compassion and care.
+  <p>
+    <a href="LICENSE">
+      <img src="https://img.shields.io/badge/license-MIT-green.svg?style=flat-square" alt="License">
+    </a>
+    <a href="https://www.python.org/">
+      <img src="https://img.shields.io/badge/python-3.11+-blue.svg?style=flat-square&logo=python&logoColor=white" alt="Python">
+    </a>
+    <a href="https://fastapi.tiangolo.com/">
+      <img src="https://img.shields.io/badge/FastAPI-0.109+-009688.svg?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
+    </a>
+    <a href="https://www.twilio.com/">
+      <img src="https://img.shields.io/badge/Twilio-Voice-F22F46.svg?style=flat-square&logo=twilio&logoColor=white" alt="Twilio">
+    </a>
+  </p>
+  
+  <p>
+    <i>"Every conversation is a chance to make someone feel heard, valued, and a little less alone."</i>
+  </p>
+</div>
 
-> _"Every conversation is a chance to make someone feel heard, valued, and a little less alone."_
+---
+
+> [!NOTE] > **Project Status & Disclaimer**
+> This project was developed as a proof-of-concept to demonstrate capabilities in building real-time voice calling agents. As a prototype, it requires further optimization, particularly regarding latency. These improvements are currently in progress.
+
+## 📖 About
+
+**MindBloom AI** (featuring **Artika**) is an AI-powered mental health support companion that provides empathetic, real-time voice conversations. It is designed to be a non-judgmental space where users can express their feelings, practice grounding exercises, and receive immediate support in times of crisis.
+
+## ✨ Key Features
+
+| Feature                     | Description                                                                                  |
+| :-------------------------- | :------------------------------------------------------------------------------------------- |
+| **🗣️ Multilingual Support** | Converses fluently in **11 Indian languages** including Hindi, Tamil, Bengali, and Marathi.  |
+| **❤️ Crisis Detection**     | Intelligently detects signs of distress and triggers immediate **emergency email alerts**.   |
+| **🧘 Guided Breathing**     | recognizes requests for calm and leads users through audio-guided **breathing exercises**.   |
+| **📊 Mood Analysis**        | Tracks conversation sentiment to adapt responses and provide **post-session summaries**.     |
+| **📅 Easy Scheduling**      | Seamlessly integrates with Google Forms to **book therapy appointments** via voice commands. |
 
 ## 🏗️ Architecture
 
+MindBloom orchestrates a low-latency pipeline connecting telephony, speech AI, and LLMs.
+
 ```mermaid
 flowchart TB
-    subgraph User["👤 User"]
-        Phone["📱 Phone Call"]
+    subgraph User Interaction
+        Phone["📱 Telephony"]
     end
 
-    subgraph Twilio["☁️ Twilio"]
-        TwilioVoice["Voice API"]
-        MediaStream["WebSocket Stream"]
+    subgraph "Core Infrastructure"
+        Twilio["☁️ Twilio Voice\n(WebSocket Stream)"]
+        FastAPI["⚡ MindBloom Server\n(FastAPI)"]
     end
 
-    subgraph MindBloom["🌸 MindBloom AI Server"]
-        FastAPI["⚡ FastAPI"]
-        CallHandler["📞 Call Handler"]
-
-        subgraph Detection["🔍 Detection Engine"]
-            Crisis["🚨 Crisis Detection"]
-            Mood["😊 Mood Detection"]
-            Breathing["🧘 Breathing Trigger"]
-            Booking["📅 Booking Trigger"]
-        end
-
-        subgraph Services["🔧 Services"]
-            SarvamSTT["🎤 Speech-to-Text"]
-            SarvamTTS["🔊 Text-to-Speech"]
-            GroqLLM["🧠 Artika AI"]
-            EmailSvc["📧 Email Service"]
-        end
+    subgraph "AI Services Pipeline"
+        Sarvam["🗣️ Sarvam AI\n(STT & TTS)"]
+        Groq["🧠 Groq LPU\n(Llama 3.3 70B)"]
     end
 
-    subgraph External["🌐 External APIs"]
-        Sarvam["Sarvam AI"]
-        Groq["Groq API"]
-        Gmail["Gmail SMTP"]
+    subgraph "External Integrations"
+        Gmail["� SMTP Service\n(Alerts & Summaries)"]
     end
 
-    subgraph Outputs["📤 Outputs"]
-        CrisisEmail["🚨 Crisis Alert Email"]
-        SummaryEmail["📋 Session Summary"]
-        BookingEmail["📅 Booking Link"]
-    end
+    Phone <--> Twilio
+    Twilio <--> FastAPI
+    FastAPI <--> Sarvam
+    FastAPI <--> Groq
+    FastAPI --> Gmail
 
-    Phone --> TwilioVoice
-    TwilioVoice <--> MediaStream
-    MediaStream <--> FastAPI
-    FastAPI --> CallHandler
-    CallHandler --> Detection
-    Detection --> Services
-    SarvamSTT --> Sarvam
-    SarvamTTS --> Sarvam
-    GroqLLM --> Groq
-    EmailSvc --> Gmail
-    Crisis --> CrisisEmail
-    CallHandler --> SummaryEmail
-    Booking --> BookingEmail
+    style FastAPI fill:#e1f5fe,stroke:#01579b
+    style Groq fill:#f3e5f5,stroke:#4a148c
+    style Sarvam fill:#e8f5e9,stroke:#1b5e20
 ```
 
-## ✨ Features
+## 🛠️ Technology Stack
 
-### 🧠 Mental Health Support
-
-- Warm, empathetic conversational AI (Artika)
-- Mood detection and adaptive responses
-- Guided breathing exercises with audio
-- Crisis detection with emergency alerts
-
-### 📞 Voice Capabilities
-
-- Real-time speech-to-text and text-to-speech
-- Support for 11 Indian languages
-- Automatic language detection
-- WebSocket-based media streaming
-
-### 📧 Smart Features
-
-- **Crisis Detection**: Sends emergency email alerts when distress is detected
-- **Session Summaries**: Email follow-up with topics discussed and resources
-- **Appointment Booking**: Therapy session booking via Google Forms
-- **Conversation Memory**: Remembers context throughout the call
-
-## 🛠️ Tech Stack
-
-| Technology     | Purpose                         |
-| -------------- | ------------------------------- |
-| **FastAPI**    | High-performance web framework  |
-| **Twilio**     | Phone call handling             |
-| **Sarvam AI**  | Speech-to-text & text-to-speech |
-| **Groq**       | LLM responses (Llama 3.3 70B)   |
-| **Gmail SMTP** | Email notifications             |
-
-## 📁 Project Structure
-
-```
-mindbloom-ai/
-├── app/
-│   ├── api/
-│   │   └── call_handler.py      # Call handling & feature logic
-│   ├── services/
-│   │   ├── sarvam_service.py    # Sarvam AI & Groq integration
-│   │   ├── twilio_service.py    # Twilio integration
-│   │   └── email_service.py     # Email notifications
-│   └── main.py                  # FastAPI entry point
-├── assets/
-│   └── Inhale.mp3               # Breathing exercise audio
-├── recordings/                   # Saved audio files (gitignored)
-├── .env                          # Environment variables
-└── README.md
-```
+| Category         | Technology                                                                                              | Usage                                                                        |
+| :--------------- | :------------------------------------------------------------------------------------------------------ | :--------------------------------------------------------------------------- |
+| **Backend**      | ![FastAPI](https://img.shields.io/badge/-FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white) | Core application server and WebSocket handler.                               |
+| **Telephony**    | ![Twilio](https://img.shields.io/badge/-Twilio-F22F46?style=flat-square&logo=twilio&logoColor=white)    | Handling incoming voice calls and media streams.                             |
+| **Speech AI**    | **Sarvam AI**                                                                                           | High-fidelity Speech-to-Text and Text-to-Speech for Indian languages.        |
+| **Intelligence** | **Groq LPU**                                                                                            | Extremely fast inference using **Llama 3.3 70B** for real-time conversation. |
+| **Tools**        | **uv**                                                                                                  | Fast Python package management.                                              |
 
 ## 🚀 Quick Start
 
-### 1. Install Dependencies
+### Prerequisites
+
+- Python 3.11+
+- [uv](https://astral.sh/uv) package manager
+- [ngrok](https://ngrok.com/) (for local tunneling)
+
+### 1. Installation
 
 ```bash
-# Install uv (if not installed)
-irm https://astral.sh/uv/install.ps1 | iex  # Windows
-curl -LsSf https://astral.sh/uv/install.sh | sh  # macOS/Linux
+# Clone the repository
+git clone https://github.com/yourusername/MindBloomAI.git
+cd MindBloomAI
 
-# Setup project
+# Install dependencies
 uv venv
 uv sync
 ```
 
-### 2. Configure Environment
+### 2. Configuration
 
-Create `.env` file:
+Create a `.env` file in the root directory:
 
 ```env
-# Groq API (https://console.groq.com)
+# AI Providers
 GROQ_API_KEY=your_groq_api_key
-
-# Sarvam AI (https://sarvam.ai)
 SARVAM_API_KEY=your_sarvam_api_key
 
-# Twilio (https://twilio.com)
+# Telephony
 TWILIO_ACCOUNT_SID=your_sid
 TWILIO_AUTH_TOKEN=your_token
-TWILIO_PHONE_NUMBER=+1234567890
+TWILIO_PHONE_NUMBER=your_twilio_number
 
-# Email (Gmail with App Password)
+# Notifications
 SMTP_EMAIL=your_email@gmail.com
-SMTP_PASSWORD=your_app_password
+SMTP_PASSWORD=your_app_app_password
+EMERGENCY_CONTACT_EMAIL=emergency_contact@email.com
 
-# Emergency Contact
-EMERGENCY_CONTACT_EMAIL=emergency@email.com
-
-# Appointment Booking
-GOOGLE_FORM_LINK=https://forms.gle/your-form
+# Integrations
+GOOGLE_FORM_LINK=https://forms.gle/your-form-id
 ```
 
-### 3. Run the Server
+### 3. Running the Application
 
 ```bash
-# Start server
+# Start the server
 uv run python -m app.main
+```
 
-# In another terminal, start ngrok
+### 4. Exposing to Internet
+
+In a new terminal window:
+
+```bash
 ngrok http 8000
 ```
 
-### 4. Configure Twilio
+_Copy the forwarding URL (e.g., `https://xxxx.ngrok-free.app`) and configure it in your Twilio Phone Number settings as the Voice Webhook._
 
-1. Go to Twilio Console → Phone Numbers
-2. Set Voice Webhook URL: `https://your-ngrok-url/incoming-call`
-3. Method: POST
+## � Voice Commands
 
-## 🎯 Feature Triggers
+Try these phrases during your call:
 
-| Feature                   | Trigger Phrases                                 |
-| ------------------------- | ----------------------------------------------- |
-| 🧘 **Breathing Exercise** | "Help me breathe", "Calm me down", "Meditation" |
-| 📅 **Book Appointment**   | "Book appointment", "Talk to therapist"         |
-| 🚨 **Crisis Alert**       | "I want to die", "Giving up", "Hopeless"        |
-| 👋 **End Call**           | "Goodbye", "Bye", "Thank you"                   |
-
-## 🌍 Supported Languages
-
-Hindi, Bengali, Kannada, Malayalam, Marathi, Odia, Punjabi, Tamil, Telugu, Gujarati, English
-
-## 🚨 Crisis Detection
-
-When crisis keywords are detected, the system:
-
-1. ✉️ Sends immediate email to emergency contact
-2. 🗣️ Provides compassionate response with helpline numbers
-3. 📝 Logs the incident for follow-up
-
-**Helplines included:**
-
-- iCALL: 9152987821
-- Vandrevala Foundation: 1860-2662-345
-
-## 📧 Email Features
-
-- **Crisis Alerts**: Immediate notification with caller details
-- **Session Summaries**: Topics discussed + self-care resources
-- **Appointment Links**: Google Form booking links
-
-## 🔧 Troubleshooting
-
-| Issue                 | Solution                    |
-| --------------------- | --------------------------- |
-| WebSocket disconnects | Check ngrok is running      |
-| No audio response     | Verify Sarvam API key       |
-| Emails not sending    | Check Gmail App Password    |
-| Crisis not detected   | Check exact phrase matching |
+- **"I'm feeling very anxious."** → _Triggers calming response_
+- **"Help me breathe."** → _Starts breathing exercise_
+- **"I want to book an appointment."** → _Sends booking link_
+- **"I don't think I can go on."** → _Triggers crisis protocol_
 
 ## 📄 License
 
-MIT License - Built with 💚 for mental wellness
+Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
 
-**MindBloom AI** - _Your gentle guide on your mental wellness journey_ 🌸
+<div align="center">
+  <p>Built with 💚 for mental wellness.</p>
+</div>
