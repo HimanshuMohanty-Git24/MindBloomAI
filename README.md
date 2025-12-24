@@ -40,6 +40,7 @@
 | **❤️ Crisis Detection**     | Intelligently detects signs of distress and triggers immediate **emergency email alerts**.   |
 | **🧘 Guided Breathing**     | recognizes requests for calm and leads users through audio-guided **breathing exercises**.   |
 | **📊 Mood Analysis**        | Tracks conversation sentiment to adapt responses and provide **post-session summaries**.     |
+| **⚡ Low Latency**          | Optimized pipeline delivering voice responses in **under 1.5 seconds**.                      |
 | **📅 Easy Scheduling**      | Seamlessly integrates with Google Forms to **book therapy appointments** via voice commands. |
 
 ## 🏗️ Architecture
