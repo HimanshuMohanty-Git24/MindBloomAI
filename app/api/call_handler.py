@@ -2,16 +2,13 @@ from fastapi import APIRouter, WebSocket, HTTPException, Depends, Request, Respo
 from ..services.twilio_service import TwilioService
 from ..services.sarvam_service import SarvamAIService
 from ..services.email_service import email_service
+from ..services.intelligence_service import IntelligenceService
+from ..utils import audio_utils
 import base64
 import json
 from typing import Dict, List, Optional
 from twilio.twiml.voice_response import VoiceResponse, Connect, Start
 import logging
-import audioop
-import wave
-import io
-import os
-from datetime import datetime
 import asyncio
 import time
 import re
@@ -38,115 +35,9 @@ speech_states: Dict[str, dict] = {}  # Track speech state for each connection
 session_data: Dict[str, dict] = {}  # Stores: phone, email, topics, mood, crisis_detected
 
 # Constants for audio processing
-SILENCE_THRESHOLD = 200  # RMS threshold for silence detection
 MIN_SPEECH_DURATION_MS = 1000  # Minimum speech duration (1 second)
 MAX_SPEECH_DURATION_MS = 15000  # Maximum speech duration (15 seconds)
 SILENCE_DURATION_MS = 1000  # Duration of silence to mark end of speech
-SAMPLES_PER_MS = 8  # At 8kHz sample rate
-
-# Crisis detection keywords - COMPREHENSIVE LIST
-# Includes variations: giving/give, wanna/want, don't/do not, etc.
-CRISIS_KEYWORDS = [
-    # Suicide-related
-    "kill myself", "killing myself", "suicide", "suicidal", "suicidal thoughts",
-    "want to die", "wanna die", "wanting to die", "wish i was dead", "wish i were dead",
-    "end my life", "ending my life", "end it all", "ending it all", "end everything",
-    "take my life", "taking my life", "take my own life",
-    
-    # Not wanting to live
-    "don't want to live", "do not want to live", "dont want to live",
-    "don't wanna live", "dont wanna live", "no will to live",
-    "can't live anymore", "cant live anymore", "cannot live anymore",
-    "tired of living", "tired of life", "done with life", "done living",
-    
-    # Giving up
-    "give up on life", "giving up on life", "given up on life",
-    "give up", "giving up", "i give up", "i'm giving up", "im giving up",
-    "no reason to live", "no point in living", "nothing to live for",
-    "life is meaningless", "life has no meaning", "life is pointless",
-    
-    # Hopelessness
-    "better off dead", "world is better without me", "everyone is better without me",
-    "no one would miss me", "nobody would miss me", "no one cares if i die",
-    "hopeless", "completely hopeless", "there's no hope", "no hope left",
-    "can't go on", "cant go on", "cannot go on", "can't continue", "cant continue",
-    
-    # Self-harm
-    "self-harm", "self harm", "selfharm", "hurt myself", "hurting myself",
-    "cut myself", "cutting myself", "harm myself", "harming myself",
-    "injure myself", "injuring myself", "punish myself",
-    
-    # Overdose / Methods
-    "overdose", "take pills", "taking pills", "poison myself",
-    "jump off", "jumping off", "hang myself", "hanging myself",
-    
-    # Life not worth it
-    "life is not worth", "life isnt worth", "life isn't worth",
-    "not worth living", "worthless life", "waste of life",
-    "life is a burden", "burden to everyone", "burden to my family",
-    
-    # Single dangerous words (check carefully)
-    "khatam", "marna chahta", "marna chahti", "jaan dena", "zindagi khatam"
-]
-
-# Mood detection keywords (does NOT include crisis words - those are checked first)
-MOOD_KEYWORDS = {
-    "anxious": ["anxious", "worried", "nervous", "panic", "stressed", "anxiety", "fear", "scared"],
-    "sad": ["sad", "depressed", "lonely", "crying", "unhappy", "miserable", "grief", "down", "low"],
-    "angry": ["angry", "frustrated", "irritated", "rage", "mad", "annoyed", "furious"],
-    "happy": ["happy", "good", "great", "wonderful", "excited", "joyful", "grateful", "blessed"],
-    "calm": ["calm", "peaceful", "relaxed", "content", "okay", "fine", "better"]
-}
-
-# Breathing exercise trigger phrases
-BREATHING_TRIGGERS = [
-    "breathing exercise", "help me breathe", "calm me down", "breathing",
-    "can't breathe", "panic attack", "help me relax", "meditation",
-    "guided breathing", "deep breath"
-]
-
-# Appointment booking trigger phrases
-BOOKING_TRIGGERS = [
-    "book appointment", "schedule therapy", "talk to therapist",
-    "professional help", "see a counselor", "book session", "therapy appointment",
-    "speak to someone", "real person", "human therapist"
-]
-
-def is_silence(audio_data: bytes) -> bool:
-    """Check if audio chunk is silence"""
-    try:
-        pcm_data = audioop.ulaw2lin(audio_data, 2)
-        rms = audioop.rms(pcm_data, 2)
-        return rms < SILENCE_THRESHOLD
-    except:
-        return True
-
-def get_audio_duration_ms(audio_data: List[bytes]) -> float:
-    """Calculate duration of audio in milliseconds"""
-    total_bytes = sum(len(chunk) for chunk in audio_data)
-    return (total_bytes / 2) / SAMPLES_PER_MS
-
-def convert_audio(audio_data: List[bytes]) -> bytes:
-    """Convert mu-law audio chunks to WAV format at 16kHz for Sarvam AI"""
-    try:
-        # Convert mu-law to linear PCM
-        pcm_data = b''.join([audioop.ulaw2lin(chunk, 2) for chunk in audio_data])
-        
-        # Resample from 8kHz to 16kHz for Sarvam AI compatibility
-        pcm_data_16k, _ = audioop.ratecv(pcm_data, 2, 1, 8000, 16000, None)
-        
-        # Create WAV file in memory
-        wav_buffer = io.BytesIO()
-        with wave.open(wav_buffer, 'wb') as wav_file:
-            wav_file.setnchannels(1)  # Mono
-            wav_file.setsampwidth(2)  # 2 bytes per sample
-            wav_file.setframerate(16000)  # 16kHz sample rate for Sarvam AI
-            wav_file.writeframes(pcm_data_16k)
-        
-        return wav_buffer.getvalue()
-    except Exception as e:
-        logger.error(f"Error converting audio: {e}")
-        raise
 
 def should_process_speech(connection_id: str) -> bool:
     """Determine if we should process the current speech buffer"""
@@ -172,81 +63,6 @@ def should_process_speech(connection_id: str) -> bool:
     
     return False
 
-def convert_to_mulaw(wav_data: bytes) -> bytes:
-    """Convert WAV audio to mu-law format for Twilio"""
-    try:
-        # Read WAV data
-        with wave.open(io.BytesIO(wav_data), 'rb') as wav_file:
-            # Read wav file parameters
-            n_channels = wav_file.getnchannels()
-            sampwidth = wav_file.getsampwidth()
-            framerate = wav_file.getframerate()
-            # Read PCM data
-            pcm_data = wav_file.readframes(wav_file.getnframes())
-
-        # Convert to mono if needed
-        if n_channels == 2:
-            pcm_data = audioop.tomono(pcm_data, sampwidth, 1, 1)
-
-        # Convert to 16-bit if needed
-        if sampwidth != 2:
-            pcm_data = audioop.lin2lin(pcm_data, sampwidth, 2)
-
-        # Resample to 8kHz if needed
-        if framerate != 8000:
-            pcm_data = audioop.ratecv(pcm_data, 2, 1, framerate, 8000, None)[0]
-
-        # Convert to mu-law
-        mu_law_data = audioop.lin2ulaw(pcm_data, 2)
-        return mu_law_data
-    except Exception as e:
-        logger.error(f"Error converting to mu-law: {e}")
-        raise
-
-def load_breathing_audio() -> bytes:
-    """Load and convert breathing exercise MP3 to mu-law format"""
-    try:
-        import subprocess
-        
-        breathing_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "assets", "Inhale.mp3")
-        
-        if not os.path.exists(breathing_file):
-            logger.error(f"Breathing audio file not found: {breathing_file}")
-            return None
-        
-        # Use ffmpeg to convert MP3 to WAV (8kHz, mono, 16-bit)
-        # ffmpeg needs to be installed on the system
-        temp_wav = os.path.join(os.path.dirname(breathing_file), "breathing_temp.wav")
-        
-        result = subprocess.run([
-            "ffmpeg", "-y", "-i", breathing_file,
-            "-ar", "8000", "-ac", "1", "-sample_fmt", "s16",
-            temp_wav
-        ], capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            logger.error(f"ffmpeg error: {result.stderr}")
-            return None
-        
-        # Read the WAV and convert to mu-law
-        with open(temp_wav, "rb") as f:
-            wav_data = f.read()
-        
-        # Clean up temp file
-        os.remove(temp_wav)
-        
-        # Convert to mu-law
-        with wave.open(io.BytesIO(wav_data), 'rb') as wav_file:
-            pcm_data = wav_file.readframes(wav_file.getnframes())
-        
-        mu_law_data = audioop.lin2ulaw(pcm_data, 2)
-        logger.info(f"Loaded breathing audio: {len(mu_law_data)} bytes")
-        return mu_law_data
-        
-    except Exception as e:
-        logger.error(f"Error loading breathing audio: {e}")
-        return None
-
 async def process_audio(websocket: WebSocket, connection_id: str, media_data: dict):
     """Process audio in background task"""
     if processing_locks.get(connection_id, False):
@@ -260,7 +76,7 @@ async def process_audio(websocket: WebSocket, connection_id: str, media_data: di
         if not buffer:
             return
             
-        duration_ms = get_audio_duration_ms(buffer)
+        duration_ms = audio_utils.get_audio_duration_ms(buffer)
         if duration_ms < MIN_SPEECH_DURATION_MS:
             return
             
@@ -268,14 +84,9 @@ async def process_audio(websocket: WebSocket, connection_id: str, media_data: di
         
         try:
             # Convert to WAV
-            wav_data = convert_audio(buffer)
+            wav_data = audio_utils.convert_audio(buffer)
             
-            # Save audio file for debugging
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"recordings/audio_{timestamp}_{int(duration_ms)}ms_{connection_id}.wav"
-            with open(filename, "wb") as f:
-                f.write(wav_data)
-            logger.info(f"Saved audio file: {filename}")
+            # Removed file writing for latency improvement
             
             # Clear buffer and reset speech state
             audio_buffers[connection_id] = []
@@ -294,8 +105,6 @@ async def process_audio(websocket: WebSocket, connection_id: str, media_data: di
                 if original_language is None:
                     original_language = "en-IN"
                 
-                text_lower = english_text.lower().strip()
-                
                 # Initialize session data if not exists
                 if connection_id not in session_data:
                     session_data[connection_id] = {
@@ -312,7 +121,7 @@ async def process_audio(websocket: WebSocket, connection_id: str, media_data: di
                 is_breathing_request = False
                 
                 # ============ 1. CRISIS DETECTION ============
-                is_crisis = any(keyword in text_lower for keyword in CRISIS_KEYWORDS)
+                is_crisis = IntelligenceService.detect_crisis(english_text)
                 if is_crisis and not session_data[connection_id]["crisis_detected"]:
                     logger.warning(f"🚨 CRISIS DETECTED: {english_text}")
                     session_data[connection_id]["crisis_detected"] = True
@@ -331,24 +140,20 @@ async def process_audio(websocket: WebSocket, connection_id: str, media_data: di
                 
                 # ============ 2. MOOD DETECTION ============
                 elif not is_crisis:
-                    detected_mood = "neutral"
-                    for mood, keywords in MOOD_KEYWORDS.items():
-                        if any(kw in text_lower for kw in keywords):
-                            detected_mood = mood
-                            break
-                    session_data[connection_id]["mood"] = detected_mood
-                    logger.info(f"Mood detected: {detected_mood}")
+                    detected_mood = IntelligenceService.detect_mood(english_text)
+                    if detected_mood != "neutral":
+                        session_data[connection_id]["mood"] = detected_mood
+                        logger.info(f"Mood detected: {detected_mood}")
                     
                     # ============ 3. BREATHING EXERCISE REQUEST ============
-                    is_breathing_request = any(trigger in text_lower for trigger in BREATHING_TRIGGERS)
-                    if is_breathing_request:
+                    if IntelligenceService.detect_breathing_request(english_text):
                         is_breathing_request = True  # Flag for audio playback later
                         logger.info("Breathing exercise requested - will play audio after intro")
                         english_response = "Of course, let's do a calming breathing exercise together. Get comfortable, close your eyes if you like, and follow along with this one-minute guided breathing."
                         session_data[connection_id]["topics"].append("Breathing exercise")
                     
                     # ============ 4. APPOINTMENT BOOKING REQUEST ============
-                    elif any(trigger in text_lower for trigger in BOOKING_TRIGGERS):
+                    elif IntelligenceService.detect_booking_request(english_text):
                         logger.info("Appointment booking requested")
                         
                         if session_data[connection_id].get("email"):
@@ -365,11 +170,8 @@ async def process_audio(websocket: WebSocket, connection_id: str, media_data: di
                     
                     # ============ 5. EMAIL COLLECTION ============
                     elif "@" in english_text and "." in english_text:
-                        # Try to extract email from text
-                        email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-                        email_match = re.search(email_pattern, english_text)
-                        if email_match:
-                            user_email = email_match.group()
+                        user_email = IntelligenceService.extract_email(english_text)
+                        if user_email:
                             session_data[connection_id]["email"] = user_email
                             logger.info(f"User email collected: {user_email}")
                             
@@ -383,11 +185,7 @@ async def process_audio(websocket: WebSocket, connection_id: str, media_data: di
                             logger.info(f"Artika response: '{english_response}'")
                     
                     # ============ 6. FAREWELL DETECTION ============
-                    elif any(phrase in text_lower for phrase in ["bye", "goodbye", "good bye", "see you", "take care", 
-                        "that's all", "thats all", "i'm done", "im done", "thank you bye",
-                        "thanks bye", "end call", "hang up", "gotta go", "need to go",
-                        "talk later", "bye bye", "tata", "alvida", "dhanyavaad", "shukriya"]):
-                        
+                    elif IntelligenceService.detect_farewell(english_text):
                         is_farewell = True
                         english_response = "Thank you so much for sharing with me today. Remember, you're stronger than you know, and I'm always here whenever you need to talk. Take care of yourself, and don't hesitate to reach out anytime. Wishing you peace and wellness. Goodbye!"
                         logger.info("Farewell detected - sending closing message")
@@ -439,21 +237,12 @@ async def process_audio(websocket: WebSocket, connection_id: str, media_data: di
                         # Decode base64 audio
                         wav_bytes = base64.b64decode(response_audio)
                         
-                        # Save response WAV for debugging
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                        response_filename = f"recordings/response_{timestamp}_{int(duration_ms)}ms_{connection_id}.wav"
-                        with open(response_filename, "wb") as f:
-                            f.write(wav_bytes)
-                        logger.info(f"Saved response WAV file: {response_filename}")
+                        # Removed response file writing for latency improvement
                         
                         # Convert to mu-law format for Twilio
-                        mu_law_audio = convert_to_mulaw(wav_bytes)
+                        mu_law_audio = audio_utils.convert_to_mulaw(wav_bytes)
                         
-                        # Save mu-law audio for debugging
-                        mulaw_filename = f"recordings/response_{timestamp}_{int(duration_ms)}ms_{connection_id}.ulaw"
-                        with open(mulaw_filename, "wb") as f:
-                            f.write(mu_law_audio)
-                        logger.info(f"Saved mu-law audio file: {mulaw_filename}")
+                        # Removed mu-law file writing for latency improvement
                         
                         # Encode mu-law audio to base64 for Twilio
                         response_payload = base64.b64encode(mu_law_audio).decode('utf-8')
@@ -491,7 +280,7 @@ async def process_audio(websocket: WebSocket, connection_id: str, media_data: di
                         # If breathing exercise was requested, play the breathing audio
                         if is_breathing_request:
                             logger.info("Playing breathing exercise audio...")
-                            breathing_audio = load_breathing_audio()
+                            breathing_audio = audio_utils.load_breathing_audio()
                             if breathing_audio:
                                 # Send breathing audio in chunks
                                 chunk_size = 640
@@ -518,7 +307,7 @@ async def process_audio(websocket: WebSocket, connection_id: str, media_data: di
                                 )
                                 if followup_audio:
                                     followup_wav = base64.b64decode(followup_audio)
-                                    followup_mulaw = convert_to_mulaw(followup_wav)
+                                    followup_mulaw = audio_utils.convert_to_mulaw(followup_wav)
                                     for i in range(0, len(followup_mulaw), chunk_size):
                                         chunk = followup_mulaw[i:i + chunk_size]
                                         chunk_payload = base64.b64encode(chunk).decode('utf-8')
@@ -579,7 +368,7 @@ async def handle_media_stream(websocket: WebSocket):
                 current_time = time.time() * 1000
                 
                 # Update speech state based on silence detection
-                is_silent = is_silence(audio_data)
+                is_silent = audio_utils.is_silence(audio_data)
                 state = speech_states.get(connection_id, {})
                 
                 if not is_silent:
@@ -727,4 +516,4 @@ async def create_outbound_call(call_data: dict):
         return {"call_sid": call.sid}
     except Exception as e:
         logger.error(f"Error creating outbound call: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))
