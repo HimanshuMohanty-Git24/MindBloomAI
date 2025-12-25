@@ -75,6 +75,25 @@ class IntelligenceService:
         "thanks bye", "end call", "hang up", "gotta go", "need to go",
         "talk later", "bye bye", "tata", "alvida", "dhanyavaad", "shukriya"
     ]
+    
+    # Confirmation phrases (for accepting appointment suggestions)
+    CONFIRMATION_PHRASES = [
+        "yes", "ok", "okay", "sure", "yeah", "yep", "yup", "yes please",
+        "go ahead", "sounds good", "please", "i'd like that", "i would like that",
+        "let's do it", "lets do it", "that would be great", "that would be nice",
+        "i'm interested", "im interested", "book it", "definitely", "absolutely",
+        "of course", "why not", "alright", "fine", "i agree", "i want that",
+        "send it", "send me", "yes send", "please send"
+    ]
+    
+    # Decline phrases (for declining appointment suggestions)
+    DECLINE_PHRASES = [
+        "no", "not now", "maybe later", "no thanks", "no thank you", "nope",
+        "not interested", "skip", "not yet", "i'm good", "im good", "i'm fine",
+        "im fine", "no need", "don't want", "dont want", "not right now",
+        "another time", "some other time", "pass", "not today", "i'll think about it",
+        "ill think about it", "let me think", "i'm not sure", "im not sure"
+    ]
 
     @classmethod
     def detect_crisis(cls, text: str) -> bool:
@@ -113,3 +132,24 @@ class IntelligenceService:
             if email_match:
                 return email_match.group()
         return None
+    
+    @classmethod
+    def detect_confirmation(cls, text: str) -> bool:
+        """Detect if user is confirming/agreeing (e.g., to an appointment suggestion)"""
+        text_lower = text.lower().strip()
+        # Check for exact matches for short phrases
+        if text_lower in ["yes", "ok", "okay", "sure", "yeah", "yep", "yup", "please", "alright", "fine"]:
+            return True
+        # Check for phrase matches
+        return any(phrase in text_lower for phrase in cls.CONFIRMATION_PHRASES)
+    
+    @classmethod
+    def detect_decline(cls, text: str) -> bool:
+        """Detect if user is declining (e.g., an appointment suggestion)"""
+        text_lower = text.lower().strip()
+        # Check for exact matches for short phrases
+        if text_lower in ["no", "nope", "nah", "pass", "skip"]:
+            return True
+        # Check for phrase matches
+        return any(phrase in text_lower for phrase in cls.DECLINE_PHRASES)
+

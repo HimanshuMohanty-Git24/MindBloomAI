@@ -113,7 +113,10 @@ async def process_audio(websocket: WebSocket, connection_id: str, media_data: di
                         "name": "Friend",
                         "topics": [],
                         "mood": "neutral",
-                        "crisis_detected": False
+                        "crisis_detected": False,
+                        "awaiting_email": False,        # True when we've asked for email
+                        "nudged_appointment": False,    # True when we've suggested appointment
+                        "interaction_count": 0          # Track conversation turns
                     }
                 
                 # Initialize flags
@@ -145,6 +148,11 @@ async def process_audio(websocket: WebSocket, connection_id: str, media_data: di
                         session_data[connection_id]["mood"] = detected_mood
                         logger.info(f"Mood detected: {detected_mood}")
                     
+                    # Increment interaction count for nudge timing
+                    session_data[connection_id]["interaction_count"] = session_data[connection_id].get("interaction_count", 0) + 1
+                    interaction_count = session_data[connection_id]["interaction_count"]
+                    logger.info(f"Interaction count: {interaction_count}")
+                    
                     # ============ 3. BREATHING EXERCISE REQUEST ============
                     if IntelligenceService.detect_breathing_request(english_text):
                         is_breathing_request = True  # Flag for audio playback later
@@ -152,12 +160,56 @@ async def process_audio(websocket: WebSocket, connection_id: str, media_data: di
                         english_response = "Of course, let's do a calming breathing exercise together. Get comfortable, close your eyes if you like, and follow along with this one-minute guided breathing."
                         session_data[connection_id]["topics"].append("Breathing exercise")
                     
-                    # ============ 4. APPOINTMENT BOOKING REQUEST ============
+                    # ============ 4. AWAITING EMAIL STATE - User was asked for email ============
+                    elif session_data[connection_id].get("awaiting_email", False):
+                        user_email = IntelligenceService.extract_email(english_text)
+                        if user_email:
+                            # Email provided - process booking
+                            session_data[connection_id]["email"] = user_email
+                            session_data[connection_id]["awaiting_email"] = False
+                            logger.info(f"User email collected (awaiting state): {user_email}")
+                            
+                            # Send booking link
+                            user_name = session_data[connection_id].get("name", "Friend")
+                            asyncio.create_task(asyncio.to_thread(
+                                email_service.send_appointment_booking_link, user_email, user_name
+                            ))
+                            
+                            # Spell out email for confirmation
+                            spelled_email = " ".join(list(user_email.replace("@", " at ").replace(".", " dot ")))
+                            english_response = f"Perfect! I've sent the appointment booking link to {spelled_email}. You'll receive it shortly. Our team will get back to you within 24 hours. Is there anything else you'd like to talk about?"
+                            session_data[connection_id]["topics"].append("Appointment booking completed")
+                        else:
+                            # No email detected - prompt again
+                            logger.info("No email detected while awaiting - prompting again")
+                            english_response = "I didn't quite catch that email address. Could you please share your email address again? For example, yourname at gmail dot com."
+                    
+                    # ============ 5. NUDGED APPOINTMENT - Check for yes/no response ============
+                    elif session_data[connection_id].get("nudged_appointment", False):
+                        if IntelligenceService.detect_confirmation(english_text):
+                            # User confirmed - ask for email
+                            logger.info("User confirmed appointment suggestion")
+                            session_data[connection_id]["nudged_appointment"] = False
+                            session_data[connection_id]["awaiting_email"] = True
+                            english_response = "That's wonderful! Taking this step shows real strength. Could you please share your email address so I can send you the booking link?"
+                            session_data[connection_id]["topics"].append("Appointment interest confirmed")
+                        elif IntelligenceService.detect_decline(english_text):
+                            # User declined - continue normal conversation
+                            logger.info("User declined appointment suggestion")
+                            session_data[connection_id]["nudged_appointment"] = False
+                            english_response = "That's completely okay. Remember, I'm always here whenever you need to talk. Is there anything else on your mind that you'd like to share?"
+                        else:
+                            # Neither confirmation nor decline - pass to LLM
+                            session_data[connection_id]["nudged_appointment"] = False
+                            logger.info("Unclear response to nudge - passing to LLM")
+                            english_response = await sarvam_service.get_groq_response(english_text, connection_id)
+                    
+                    # ============ 6. APPOINTMENT BOOKING REQUEST (explicit) ============
                     elif IntelligenceService.detect_booking_request(english_text):
                         logger.info("Appointment booking requested")
                         
                         if session_data[connection_id].get("email"):
-                            # Send booking link
+                            # Already have email - send booking link
                             user_email = session_data[connection_id]["email"]
                             user_name = session_data[connection_id].get("name", "Friend")
                             asyncio.create_task(asyncio.to_thread(
@@ -165,26 +217,36 @@ async def process_audio(websocket: WebSocket, connection_id: str, media_data: di
                             ))
                             english_response = f"That's a wonderful step towards your wellness journey. I've sent an appointment booking link to {user_email}. You can fill out the form, and our team will get back to you within 24 hours. Is there anything else you'd like to talk about?"
                         else:
+                            # Need email - ask for it
+                            session_data[connection_id]["awaiting_email"] = True
                             english_response = "I'd be happy to help you book an appointment with a professional therapist. Could you please share your email address so I can send you the booking link?"
                         session_data[connection_id]["topics"].append("Appointment booking")
                     
-                    # ============ 5. EMAIL COLLECTION ============
+                    # ============ 7. EMAIL COLLECTION (spontaneous - not awaiting) ============
                     elif "@" in english_text and "." in english_text:
                         user_email = IntelligenceService.extract_email(english_text)
                         if user_email:
                             session_data[connection_id]["email"] = user_email
-                            logger.info(f"User email collected: {user_email}")
+                            logger.info(f"User email collected (spontaneous): {user_email}")
                             
-                            # Spell out email letter by letter for verification
+                            # If we recently nudged or user seems to want appointment, send booking link
+                            # Otherwise just acknowledge and confirm
                             spelled_email = " ".join(list(user_email.replace("@", " at ").replace(".", " dot ")))
-                            english_response = f"Let me confirm your email. I heard: {spelled_email}. Is that correct? If not, please spell it out letter by letter for me."
+                            
+                            # Send booking link since email was provided in appointment context
+                            user_name = session_data[connection_id].get("name", "Friend")
+                            asyncio.create_task(asyncio.to_thread(
+                                email_service.send_appointment_booking_link, user_email, user_name
+                            ))
+                            english_response = f"Thank you! I've noted your email as {spelled_email} and sent you the therapist booking link. Is there anything else you'd like to talk about?"
+                            session_data[connection_id]["topics"].append("Email collected - booking link sent")
                         else:
                             # Get response from Artika
                             logger.info("Getting response from Artika")
                             english_response = await sarvam_service.get_groq_response(english_text, connection_id)
                             logger.info(f"Artika response: '{english_response}'")
                     
-                    # ============ 6. FAREWELL DETECTION ============
+                    # ============ 8. FAREWELL DETECTION ============
                     elif IntelligenceService.detect_farewell(english_text):
                         is_farewell = True
                         english_response = "Thank you so much for sharing with me today. Remember, you're stronger than you know, and I'm always here whenever you need to talk. Take care of yourself, and don't hesitate to reach out anytime. Wishing you peace and wellness. Goodbye!"
@@ -201,7 +263,7 @@ async def process_audio(websocket: WebSocket, connection_id: str, media_data: di
                             ))
                             logger.info(f"Session summary email will be sent to {user_email}")
                     
-                    # ============ 7. NORMAL CONVERSATION ============
+                    # ============ 9. NORMAL CONVERSATION ============
                     else:
                         is_farewell = False
                         # Track topic
@@ -212,6 +274,13 @@ async def process_audio(websocket: WebSocket, connection_id: str, media_data: di
                         logger.info("Getting response from Artika")
                         english_response = await sarvam_service.get_groq_response(english_text, connection_id)
                         logger.info(f"Artika response: '{english_response}'")
+                        
+                        # Check if the AI response suggested an appointment
+                        # Mark as nudged if the response mentions booking/appointment/therapist
+                        appointment_nudge_indicators = ["booking link", "professional therapist", "connect with a professional", "book an appointment", "schedule a session"]
+                        if any(indicator in english_response.lower() for indicator in appointment_nudge_indicators):
+                            session_data[connection_id]["nudged_appointment"] = True
+                            logger.info("Appointment nudge detected in AI response - setting nudged_appointment flag")
                 
                 # Translate response if not English
                 if original_language != "en-IN":
@@ -419,7 +488,10 @@ async def handle_media_stream(websocket: WebSocket):
                         "topics": [],
                         "mood": "neutral",
                         "crisis_detected": False,
-                        "stream_sid": stream_sid
+                        "stream_sid": stream_sid,
+                        "awaiting_email": False,
+                        "nudged_appointment": False,
+                        "interaction_count": 0
                     }
                 else:
                     session_data[connection_id]["phone"] = caller_phone
