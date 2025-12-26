@@ -24,7 +24,7 @@ class TwilioService:
         
         # Configure media streams
         connect = response.connect()
-        connect.stream(name='99phones-stream', url=stream_url, track='both_tracks')
+        connect.stream(name='MindBloomAI-stream', url=stream_url, track='both_tracks')
         
         # Add gather for continuous speech input
         gather = response.gather(

@@ -1,5 +1,5 @@
 [project]
-name = "99phone"
+name = "MindBloomAI"
 version = "0.1.0"
 description = "AI-powered phone assistant with Twilio integration"
 readme = "README.md"

@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from app.api.call_handler import router as call_router
 
-app = FastAPI(title="99phones API", description="Voice Call Processing API with Sarvam AI Integration")
+app = FastAPI(title="MindBloomAI API", description="Voice Call Processing API with Sarvam AI Integration")
 
 # Configure CORS
 app.add_middleware(
